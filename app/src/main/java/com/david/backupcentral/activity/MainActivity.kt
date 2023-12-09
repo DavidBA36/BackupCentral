@@ -1,5 +1,6 @@
 package com.david.backupcentral.activity
 
+import android.accounts.AccountManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -27,12 +28,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val executorService = Executors.newFixedThreadPool(4)
-        val mainThreadHandler: Handler = HandlerCompat.createAsync(Looper.getMainLooper())
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         binding.navView.setNavigationItemSelectedListener(this);
         val toolbar = binding.content.toolbar
-        val client = HttpClient(executorService,mainThreadHandler)
+        val client = HttpClient(executorService,this)
+        val params= mapOf("Value" to "test")
+        client.Post("https://httpbin.org/post", params,this)
 
         toolbar.setSubtitle("hola")
 
@@ -69,6 +72,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onComplete(result: String) {
+        Log.e("runnable",result)
+    }
+
+    override fun onError(result: String) {
+        Log.e("runnable",result)
+    }
+
+    override fun onConnectionFailed(result: String) {
+        Log.e("runnable",result)
+    }
+
+    override fun onStatus(result: String) {
         Log.e("runnable",result)
     }
 }

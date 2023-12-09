@@ -1,119 +1,133 @@
 package com.david.backupcentral.helpers
 
-import android.os.Handler
-import com.david.backupcentral.models.ModelItem
+import android.accounts.AccountManager
+import android.content.Context
+import android.os.Bundle
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
+import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.io.PrintWriter
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.Executor
-
-
-
 
 
 interface HttpClientCallback<String> {
     fun onComplete(result:String)
+    fun onError(result:String)
+    fun onConnectionFailed(result:String)
+    fun onStatus(result:String)
 }
 
-class HttpClient {
-    private lateinit var resultHandler: Handler
-    private lateinit var executor: Executor
+class HttpClient(executor: Executor, context: Context) {
+    private var executor = executor
+    private lateinit var httpConn: HttpURLConnection
+    val am: AccountManager = AccountManager.get(context)
+    val options = Bundle()
 
-    fun HttpClient(executor: Executor, resultHandler: Handler) {
-        this.executor = executor
-        this.resultHandler = resultHandler
-    }
-
-
-    fun Post(jsonBody: String ,callback: HttpClientCallback<String>) {
-        executor.execute(Runnable {
+    fun Get(URL:String, callback: HttpClientCallback<String>) {
+        this.executor.execute {
             try {
-                callback.onComplete("hola")
-            } catch (e: Exception) {
-                callback.onComplete("hola")
-            }
-        })
-    }
+                val url = URL(URL)
+                httpConn = url.openConnection() as HttpURLConnection
+                httpConn.useCaches = false
+                httpConn.requestMethod = "GET"
+                httpConn.doInput = true
+                httpConn.doOutput = false;
 
-
-
-    /* private class HttpSendMessageThread internal constructor(
-        private val RequestMethod: String,
-        private val requestURL: String,
-        private val params: Map<String, String>?
-    ) :
-        Thread() {
-        override fun run() {
-            try {
-                val url = URL(requestURL)
-                var httpConn = url.openConnection() as HttpURLConnection
-                httpConn.setUseCaches(false)
-                httpConn.setRequestMethod(RequestMethod)
-                httpConn.setDoInput(true) // true if we want to read server's response
-                if (RequestMethod == "GET") {
-                    httpConn.setDoOutput(false) // false indicates this is a GET request
-                } else {
-                    httpConn.setReadTimeout(60000)
-                    httpConn.setConnectTimeout(5000)
-                    val requestParams = StringBuilder()
-                    if (params != null && params.size > 0) {
-                        httpConn.setDoOutput(true) // true indicates POST request
-                        // creates the params string, encode them using URLEncoder
-                        for (key in params.keys) {
-                            val value = params[key]
-                            requestParams.append(URLEncoder.encode(key, "UTF-8"))
-                            requestParams.append("=").append(URLEncoder.encode(value, "UTF-8"))
-                            requestParams.append("&")
-                        }
-                        if (requestParams.length > 0) {
-                            requestParams.setLength(requestParams.length - 1)
-                        }
-                        // sends POST data
-                        val writer = OutputStreamWriter(httpConn.getOutputStream())
-                        writer.write(requestParams.toString())
-                        writer.flush()
-                    } else {
-                        val result = Bundle()
-                        result.putString("name", "details")
-                        result.putString("value", "params in POST request not given")
-                        HttpfireEvent(HttpEvent(HttpEventType.MALFORMED_REQUEST, null))
-                    }
-                }
                 if (httpConn != null) {
-                    val status: Int = httpConn.getResponseCode()
+                    val status = httpConn.responseCode
                     val inputStream: InputStream
                     inputStream = if (status >= 400 && status <= 599) {
-                        httpConn.getErrorStream()
+                        httpConn.errorStream
                     } else {
-                        httpConn.getInputStream()
+                        httpConn.inputStream
                     }
                     val reader = BufferedReader(InputStreamReader(inputStream))
-                    val total = StringBuilder()
+                    val total = java.lang.StringBuilder()
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
                         total.append(line).append('\n')
                     }
                     reader.close()
-                    val result = Bundle()
-                    result.putString("name", "message")
-                    result.putString("value", total.toString())
-                    HttpfireEvent(HttpEvent(HttpEventType.MESSAGE_RECEIVED, result))
+                    callback.onComplete(total.toString())
                 } else {
-                    HttpfireEvent(HttpEvent(HttpEventType.CONNECTION_FAILED, null))
+                    callback.onConnectionFailed("")
                 }
+
             } catch (e: IOException) {
-                val result = Bundle()
-                result.putString("name", "exception")
-                result.putString("value", e.message)
-                HttpfireEvent(HttpEvent(HttpEventType.PROTOCOL_ERROR, result))
-            } finally {
+                callback.onComplete(e.message.toString())
+            }finally {
                 if (httpConn != null) {
-                    httpConn.disconnect()
-                    HttpfireEvent(HttpEvent(HttpEventType.DISCONNECTED, null))
+                    httpConn.disconnect();
+
+                    callback.onStatus("Disconnected")
                 }
             }
         }
     }
 
-    override fun run() {
-        TODO("Not yet implemented")
-    }*/
+    fun Post(URL:String, params:Map<String, String> , callback: HttpClientCallback<String>) {
+        this.executor.execute {
+            try {
+                val url = URL(URL)
+                httpConn = url.openConnection() as HttpURLConnection
+                httpConn.useCaches = false
+                httpConn.requestMethod = "POST"
+                httpConn.doInput = true
+                httpConn.readTimeout = 60000;
+                httpConn.connectTimeout = 5000;
+                val requestParams = StringBuilder()
+                if (params != null && params.isNotEmpty()) {
+                    httpConn.doOutput = true;
+                    for (entry in params.entries.iterator()) {
+                        requestParams.append(URLEncoder.encode(entry.key, "UTF-8"))
+                        requestParams.append("=").append(URLEncoder.encode(entry.value, "UTF-8"))
+                        requestParams.append("&")
+                    }
+                    if (requestParams.isNotEmpty()) {
+                        requestParams.setLength(requestParams.length - 1);
+                    }
+                    val writer = OutputStreamWriter(httpConn.outputStream)
+                    writer.write(requestParams.toString())
+                    writer.flush()
+                }
+                else {
+                    callback.onError("params in POST request not given")
+                }
 
+                if (httpConn != null) {
+                    val status = httpConn.responseCode
+                    val inputStream: InputStream = if (status in 400..599) {
+                        httpConn.errorStream
+                    } else {
+                        httpConn.inputStream
+                    }
+                    val reader = BufferedReader(InputStreamReader(inputStream))
+                    val total = java.lang.StringBuilder()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        total.append(line).append('\n')
+                    }
+                    reader.close()
+                    callback.onComplete(total.toString())
+                } else {
+                    callback.onConnectionFailed("")
+                }
+            } catch (e: IOException) {
+                callback.onComplete(e.message.toString())
+            }finally {
+                if (httpConn != null) {
+                    httpConn.disconnect();
+
+                    callback.onStatus("Disconnected")
+                }
+            }
+        }
+
+    }
 }
